@@ -92,7 +92,7 @@
       region: "{{ demo_region }}"
       assign_public_ip: yes
       group_id: "{{ sg.group_id }}"
-      instance_profile_name: ecsInstanceRole
+      instance_profile_name: ecsInstanceRole # FIXME: Can I not be hard-coded? :(
     register: ec2
     when: instance_exists.instances|length == 0
 
