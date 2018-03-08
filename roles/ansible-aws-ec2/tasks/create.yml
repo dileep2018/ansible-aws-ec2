@@ -1,0 +1,129 @@
+---
+- block:
+  - setup:
+      filter: ansible_*
+
+  - name: Create a VPC
+    ec2_vpc_net:
+      name: "{{ demo_net_name }}"
+      cidr_block: "{{ demo_net }}"
+      region: "{{ demo_region }}"
+      state: present
+    register: vpc
+
+  - name: Create a subnet
+    ec2_vpc_subnet:
+      vpc_id: "{{ vpc.vpc.id }}"
+      cidr: "{{ demo_subnet }}"
+      region: "{{ demo_region }}"
+      state: present
+    register: subnet
+
+  - name: Connect the VPC to the Internet
+    ec2_vpc_igw:
+      vpc_id: "{{ vpc.vpc.id }}"
+      region: "{{ demo_region }}"
+    register: igw
+
+  - name: Manage the VPC's route tables
+    ec2_vpc_route_table:
+      vpc_id: "{{ vpc.vpc.id }}"
+      subnets: "{{ subnet.subnet.id }}"
+      region: "{{ demo_region }}"
+      tags:
+        Name: "{{ demo_route_table }}" # Give it a name so it won't be recreated.
+      routes:
+        - dest: 0.0.0.0/0
+          gateway_id: "{{ igw.gateway_id }}"
+
+  - name: Create a keypair
+    ec2_key:
+      name: "{{ your_name }}"
+      region: "{{ demo_region }}"
+      key_material: "{{ item }}"
+    with_file: "{{ ansible_user_dir }}/.ssh/id_rsa.pub"
+    # AWS doesn't like ed25519 keys :(
+
+  - name: Get current system public IP
+    ipify_facts:
+
+  - name: Create security group and add rules
+    ec2_group:
+      name: "{{ demo_sg }}"
+      description: Test security group
+      vpc_id: "{{ vpc.vpc.id }}"
+      region: "{{ demo_region }}"
+      rules:
+        - proto: tcp
+          from_port: 22
+          to_port: 22
+          cidr_ip: "{{ ipify_public_ip }}/32"
+        - proto: icmp
+          from_port: -1
+          to_port: -1
+          cidr_ip: 0.0.0.0/0
+    register: sg
+
+  - name: Find the latest image
+    ec2_ami_find:
+      owner: amazon
+      name: "{{ demo_ami }}"
+      region: "{{ demo_region }}"
+      sort: creationDate
+      sort_order: descending
+      sort_end: 1
+    register: ami
+
+  - name: Check if the instance exists and is running
+    ec2_instance_facts:
+      region: "{{ demo_region }}"
+      filters:
+        "tag:Name": "{{ demo_hostname }}"
+        "instance-state-name": running # Terminated instances usually remain for some time before they totally disappear.
+    register: instance_exists
+
+  - name: Create an instance if there is none
+    ec2:
+      key_name: "{{ your_name }}"
+      image: "{{ ami.results[0].ami_id }}"
+      instance_type: "{{ demo_instance_type }}"
+      vpc_subnet_id: "{{ subnet.subnet.id }}"
+      wait: yes
+      region: "{{ demo_region }}"
+      assign_public_ip: yes
+      group_id: "{{ sg.group_id }}"
+      instance_profile_name: ecsInstanceRole
+    register: ec2
+    when: instance_exists.instances|length == 0
+
+  - name: Attach a tag to the instance
+    ec2_tag:
+      resource: "{{ item.id }}"
+      region: "{{ demo_region }}"
+      tags:
+        Name: "{{ demo_hostname }}"
+    with_items: "{{ ec2.instances }}"
+    when: ec2|changed
+
+  - name: Set inventory hostname to the new public IP address
+    set_fact:
+      ansible_host: "{{ item.public_ip }}"
+    with_items: "{{ ec2.instances }}"
+    when: ec2|changed
+
+  - name: Clear ssh known_hosts
+    known_hosts:
+      name: "{{ ansible_host }}"
+      state: absent
+    when: ec2|changed
+    ignore_errors: true
+
+  - name: Wait for the instance to be ready
+    wait_for:
+      host: "{{ ansible_host }}"
+      port: 22
+      search_regex: OpenSSH
+    when: ec2|changed
+
+  delegate_to: localhost
+  connection: local
