@@ -1,0 +1,96 @@
+---
+- pause:
+    prompt: |
+      Choose what you want to clean up:
+        [1] everything
+        [2] instance only
+  register: what
+
+- block:
+  - block:
+    - name: Gather facts about the instance
+      ec2_instance_facts:
+        region: "{{ demo_region }}"
+        filters:
+          "tag:Name": "{{ demo_hostname }}"
+      register: instance_facts
+
+    - name: Find the instance's id
+      set_fact:
+        instance_id: "{{ item.instance_id }}"
+      with_items: "{{ instance_facts.instances }}"
+
+    - name: Delete the instance
+      ec2:
+        instance_ids: "{{ instance_id }}"
+        region: "{{ demo_region }}"
+        state: absent
+      until: instance_status == "terminated"
+
+    when: what.user_input == "2" or what.user_input == "1"
+
+  - name: Gather facts about the VPC
+    ec2_vpc_net_facts:
+      region: "{{ demo_region }}"
+      filters:
+        "tag:Name": "{{ demo_net_name }}"
+    register: vpc_facts
+
+  - name: Find the VPC's id
+    set_fact:
+      vpc_id: "{{ item.id }}"
+    with_items: "{{ vpc_facts.vpcs }}"
+
+  - name: Gather facts about the subnet
+    ec2_vpc_subnet_facts:
+      region: "{{ demo_region }}"
+      filters:
+        vpc-id: "{{ vpc_id }}"
+    register: subnet_facts
+    when: instance_status == "terminated"
+
+  - name: Wait for the instance to be really terminated
+    shell: "aws ec2 describe-instance-status --instance-ids {{ instance_id }} | grep -A 2 InstanceState"
+    register: instance_status
+    until: "'terminated' in instance_status"
+    retries: 10
+    delay: 5
+
+  - name: Delete the subnet
+    ec2_vpc_subnet:
+      vpc_id: "{{ vpc_id }}"
+      cidr: "{{ demo_subnet }}"
+      region: "{{ demo_region }}"
+      state: absent
+
+  - name: Delete the VPC Internet gateway
+    ec2_vpc_igw:
+      vpc_id: "{{ vpc_id }}"
+      region: "{{ demo_region }}"
+      state: absent
+
+  - name: Delete the VPC's route tables
+    ec2_vpc_route_table:
+      vpc_id: "{{ vpc_id }}"
+      region: "{{ demo_region }}"
+      state: absent
+
+  - name: Delete the VPC
+    ec2_vpc_net:
+      region: "{{ demo_region }}"
+      name: "{{ demo_net_name }}"
+      state: absent
+
+  - name: Delete the keypair
+    ec2_key:
+      name: "{{ your_name }}"
+      region: "{{ demo_region }}"
+      state: absent
+
+  - name: Delete the security group
+    ec2_group:
+      name: "{{ demo_sg }}"
+      region: "{{ demo_region }}"
+      state: absent
+
+  when: what.user_input == "1"

@@ -4,3 +4,15 @@
   gather_facts: false
   roles:
     - ansible-aws-ec2
+  tags: create
+
+- name: Clean up
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Clean up
+      include_role:
+        name: ansible-aws-ec2
+        tasks_from: destroy
+  tags: destroy

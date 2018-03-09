@@ -1,4 +1,2 @@
 ---
 - import_tasks: create.yml
-
-# TODO: add a task that will destroy the instance and clean up the environment.
