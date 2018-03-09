@@ -10,3 +10,8 @@ demo_ami: "amzn-ami-*-amazon-ecs-optimized"
 demo_sg: "{{ your_name }}-sg"
 demo_hostname: "{{ your_name }}-vm"
 demo_route_table: "{{ your_name }}-rt"
+demo_user_data: |
+  #cloud-config
+  system_info:
+    default_user:
+      name: "{{ your_name }}"

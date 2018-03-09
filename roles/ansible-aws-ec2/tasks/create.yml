@@ -50,7 +50,7 @@
   - name: Create security group and add rules
     ec2_group:
       name: "{{ demo_sg }}"
-      description: Test security group
+      description: Demo security group
       vpc_id: "{{ vpc.vpc.id }}"
       region: "{{ demo_region }}"
       rules:
@@ -93,6 +93,7 @@
       assign_public_ip: yes
       group_id: "{{ sg.group_id }}"
       instance_profile_name: ecsInstanceRole # FIXME: Can I not be hard-coded? :(
+      user_data: "{{ demo_user_data }}"
     register: ec2
     when: instance_exists.instances|length == 0
 
