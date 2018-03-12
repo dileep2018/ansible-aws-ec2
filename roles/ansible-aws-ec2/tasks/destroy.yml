@@ -13,20 +13,31 @@
         region: "{{ demo_region }}"
         filters:
           "tag:Name": "{{ demo_hostname }}"
+          "instance-state-name": running
       register: instance_facts
 
     - name: Find the instance's id
       set_fact:
         instance_id: "{{ item.instance_id }}"
       with_items: "{{ instance_facts.instances }}"
+      no_log: true
 
     - name: Delete the instance
       ec2:
         instance_ids: "{{ instance_id }}"
         region: "{{ demo_region }}"
         state: absent
-      until: instance_status == "terminated"
+      when: instance_facts.instances|length > 0
 
+    - name: Wait for the instance's status to become 'terminated'
+      shell: >
+        aws ec2 describe-instances --instance-ids {{ instance_id }} \
+        | grep -A 2 State
+      register: instance_status
+      until: "'terminated' in instance_status.stdout"
+      retries: 6
+      delay: 10
+      when: instance_facts.instances|length > 0
     when: what.user_input == "2" or what.user_input == "1"
 
   - name: Gather facts about the VPC
@@ -48,13 +59,6 @@
         vpc-id: "{{ vpc_id }}"
     register: subnet_facts
     when: instance_status == "terminated"
-
-  - name: Wait for the instance to be really terminated
-    shell: "aws ec2 describe-instance-status --instance-ids {{ instance_id }} | grep -A 2 InstanceState"
-    register: instance_status
-    until: "'terminated' in instance_status"
-    retries: 10
-    delay: 5
 
   - name: Delete the subnet
     ec2_vpc_subnet:
