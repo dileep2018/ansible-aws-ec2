@@ -1,18 +1,11 @@
 ---
-- name: Create an EC2 instance in your own VPC
-  hosts: ansible-demo
-  gather_facts: false
-  roles:
-    - ansible-aws-ec2
-  tags: create
-
-- name: Clean up
+- name: Create or destroy an EC2 instance in your own VPC
   hosts: localhost
   connection: local
   gather_facts: false
-  tasks:
-    - name: Clean up
-      include_role:
-        name: ansible-aws-ec2
-        tasks_from: destroy
-  tags: destroy
+  pre_tasks:
+    - name: Gather facts
+      setup:
+
+  roles:
+    - ansible-aws-ec2

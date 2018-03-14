@@ -1,2 +1,2 @@
 ---
-- import_tasks: create.yml
+- include_tasks: "{{ action }}.yml"
