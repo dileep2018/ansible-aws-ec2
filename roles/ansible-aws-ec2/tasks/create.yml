@@ -101,12 +101,14 @@
       tags:
         Name: "{{ demo_hostname }}"
     with_items: "{{ ec2.instances }}"
+    no_log: true
     when: ec2|changed
 
   - name: Set inventory hostname to the new public IP address
     set_fact:
       ansible_host: "{{ item.public_ip }}"
     with_items: "{{ ec2.instances }}"
+    no_log: true
     when: ec2|changed
 
   - name: Clear ssh known_hosts

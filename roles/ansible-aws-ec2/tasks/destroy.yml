@@ -7,122 +7,122 @@
   register: what
 
 - block:
+  - name: Gather facts about the instance
+    ec2_instance_facts:
+      region: "{{ demo_region }}"
+      filters:
+        "tag:Name": "{{ demo_hostname }}"
+        "instance-state-name": running
+    register: instance_facts
+
+  - name: Find the instance's id
+    set_fact:
+      instance_id: "{{ item.instance_id }}"
+    with_items: "{{ instance_facts.instances }}"
+    no_log: true
+
+  - name: Delete the instance
+    ec2:
+      instance_ids: "{{ instance_id }}"
+      region: "{{ demo_region }}"
+      state: absent
+    when: instance_facts.instances|length > 0
+
+  - name: Wait for the instance's status to become 'terminated'
+    shell: >
+      aws ec2 describe-instances --instance-ids {{ instance_id }} \
+      | grep -A 2 State
+    register: instance_status
+    until: "'terminated' in instance_status.stdout"
+    retries: 6
+    delay: 10
+    when: instance_facts.instances|length > 0
+
   - block:
-    - name: Gather facts about the instance
-      ec2_instance_facts:
+    - name: Gather facts about the VPC
+      ec2_vpc_net_facts:
         region: "{{ demo_region }}"
         filters:
-          "tag:Name": "{{ demo_hostname }}"
-          "instance-state-name": running
-      register: instance_facts
+          "tag:Name": "{{ demo_net_name }}"
+      register: vpc_facts
 
-    - name: Find the instance's id
+    - name: Find the VPC's id
       set_fact:
-        instance_id: "{{ item.instance_id }}"
-      with_items: "{{ instance_facts.instances }}"
-      no_log: true
+        vpc_id: "{{ item.id }}"
+      with_items: "{{ vpc_facts.vpcs }}"
 
-    - name: Delete the instance
-      ec2:
-        instance_ids: "{{ instance_id }}"
+    - name: Delete the subnet
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc_id }}"
+        cidr: "{{ demo_subnet }}"
         region: "{{ demo_region }}"
         state: absent
-      when: instance_facts.instances|length > 0
+      when: vpc_facts.vpcs|length > 0
 
-    - name: Wait for the instance's status to become 'terminated'
-      shell: >
-        aws ec2 describe-instances --instance-ids {{ instance_id }} \
-        | grep -A 2 State
-      register: instance_status
-      until: "'terminated' in instance_status.stdout"
-      retries: 6
-      delay: 10
-      when: instance_facts.instances|length > 0
+    - name: Delete the VPC Internet gateway
+      ec2_vpc_igw:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ demo_region }}"
+        state: absent
+      when: vpc_facts.vpcs|length > 0
 
-    when: what.user_input == "2" or what.user_input == "1"
+    - name: Gather facts about the security groups
+      ec2_group_facts:
+        region: "{{ demo_region }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+      register: sg_facts
+      when: vpc_facts.vpcs|length > 0
 
-  - name: Gather facts about the VPC
-    ec2_vpc_net_facts:
-      region: "{{ demo_region }}"
-      filters:
-        "tag:Name": "{{ demo_net_name }}"
-    register: vpc_facts
+    - name: Delete the security groups
+      ec2_group:
+        group_id: "{{ item.group_id }}"
+        region: "{{ demo_region }}"
+        state: absent
+      with_items: "{{ sg_facts.security_groups }}"
+      when: vpc_facts.vpcs|length > 0
+      register: delete_sg
+      failed_when:
+        - delete_sg|failed
+        - not "'cannot be deleted by a user' in delete_sg.stderr"
 
-  - name: Find the VPC's id
-    set_fact:
-      vpc_id: "{{ item.id }}"
-    with_items: "{{ vpc_facts.vpcs }}"
+    - name: Gather facts about the route tables
+      ec2_vpc_route_table_facts:
+        region: "{{ demo_region }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+      register: rt_facts
+      when: vpc_facts.vpcs|length > 0
 
-  - name: Delete the subnet
-    ec2_vpc_subnet:
-      vpc_id: "{{ vpc_id }}"
-      cidr: "{{ demo_subnet }}"
-      region: "{{ demo_region }}"
-      state: absent
-    when: vpc_facts.vpcs|length > 0
+    # The default 'lookup: tag' doesn't work.
+    # Ref: https://github.com/ansible/ansible/issues/19344
+    - name: Delete the VPC's route tables
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ demo_region }}"
+        lookup: id
+        route_table_id: "{{ item.id }}"
+        state: absent
+      with_items: "{{ rt_facts.route_tables }}"
+      when: vpc_facts.vpcs|length > 0
+      register: delete_rt
+      failed_when:
+        - delete_rt|failed
+        - not "'has dependencies and cannot be deleted' in delete_rt.stderr"
 
-  - name: Delete the VPC Internet gateway
-    ec2_vpc_igw:
-      vpc_id: "{{ vpc_id }}"
-      region: "{{ demo_region }}"
-      state: absent
-    when: vpc_facts.vpcs|length > 0
+    - name: Delete the keypair
+      ec2_key:
+        name: "{{ your_name }}"
+        region: "{{ demo_region }}"
+        state: absent
 
-  - name: Gather facts about the security groups
-    ec2_group_facts:
-      region: "{{ demo_region }}"
-      filters:
-        vpc-id: "{{ vpc_id }}"
-    register: sg_facts
-    when: vpc_facts.vpcs|length > 0
+    - name: Delete the VPC
+      ec2_vpc_net:
+        region: "{{ demo_region }}"
+        name: "{{ demo_net_name }}"
+        cidr_block: "{{ demo_net }}"
+        state: absent
 
-  - name: Delete the security groups
-    ec2_group:
-      group_id: "{{ item.group_id }}"
-      region: "{{ demo_region }}"
-      state: absent
-    with_items: "{{ sg_facts.security_groups }}"
-    when: vpc_facts.vpcs|length > 0
-    register: delete_sg
-    failed_when:
-      - delete_sg|failed
-      - not "'cannot be deleted by a user' in delete_sg.stderr"
+    when: what.user_input == "1"
 
-  - name: Gather facts about the route tables
-    ec2_vpc_route_table_facts:
-      region: "{{ demo_region }}"
-      filters:
-        vpc-id: "{{ vpc_id }}"
-    register: rt_facts
-    when: vpc_facts.vpcs|length > 0
-
-  # The default 'lookup: tag' doesn't work.
-  # Ref: https://github.com/ansible/ansible/issues/19344
-  - name: Delete the VPC's route tables
-    ec2_vpc_route_table:
-      vpc_id: "{{ vpc_id }}"
-      region: "{{ demo_region }}"
-      lookup: id
-      route_table_id: "{{ item.id }}"
-      state: absent
-    with_items: "{{ rt_facts.route_tables }}"
-    when: vpc_facts.vpcs|length > 0
-    register: delete_rt
-    failed_when:
-      - delete_rt|failed
-      - not "'has dependencies and cannot be deleted' in delete_rt.stderr"
-
-  - name: Delete the keypair
-    ec2_key:
-      name: "{{ your_name }}"
-      region: "{{ demo_region }}"
-      state: absent
-
-  - name: Delete the VPC
-    ec2_vpc_net:
-      region: "{{ demo_region }}"
-      name: "{{ demo_net_name }}"
-      cidr_block: "{{ demo_net }}"
-      state: absent
-
-  when: what.user_input == "1"
+  when: what.user_input == "2" or what.user_input == "1"
