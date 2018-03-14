@@ -1,8 +1,5 @@
 ---
 - block:
-  - setup:
-      filter: ansible_*
-
   - name: Create a VPC
     ec2_vpc_net:
       name: "{{ demo_net_name }}"
@@ -92,7 +89,7 @@
       region: "{{ demo_region }}"
       assign_public_ip: yes
       group_id: "{{ sg.group_id }}"
-      instance_profile_name: ecsInstanceRole # FIXME: Can I not be hard-coded? :(
+      instance_profile_name: "{{ demo_instance_profile }}"
       user_data: "{{ demo_user_data }}"
     register: ec2
     when: instance_exists.instances|length == 0
@@ -126,5 +123,6 @@
       search_regex: OpenSSH
     when: ec2|changed
 
-  delegate_to: localhost
-  connection: local
+  - debug:
+      msg: "The public IP is: {{ ansible_host }}"
+    when: ec2|changed

@@ -5,8 +5,8 @@ demo_net_name: "{{ your_name }}-vpc"
 demo_net: 192.168.1.0/24
 demo_subnet: 192.168.1.0/26
 demo_instance_type: t2.micro
-# The recommended AMI to launch Amazone ECS container instances
-demo_ami: "amzn-ami-*-amazon-ecs-optimized"
+demo_instance_profile: ecsInstanceRole # FIXME: How can I be found with Ansible?
+demo_ami: "amzn-ami-*-amazon-ecs-optimized" # The recommended AMI to launch Amazone ECS container instances
 demo_sg: "{{ your_name }}-sg"
 demo_hostname: "{{ your_name }}-vm"
 demo_route_table: "{{ your_name }}-rt"
