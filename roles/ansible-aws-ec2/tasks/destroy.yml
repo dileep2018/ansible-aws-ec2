@@ -59,12 +59,14 @@
       cidr: "{{ demo_subnet }}"
       region: "{{ demo_region }}"
       state: absent
+    when: vpc_facts.vpcs|length > 0
 
   - name: Delete the VPC Internet gateway
     ec2_vpc_igw:
       vpc_id: "{{ vpc_id }}"
       region: "{{ demo_region }}"
       state: absent
+    when: vpc_facts.vpcs|length > 0
 
   - name: Gather facts about the security groups
     ec2_group_facts:
@@ -72,6 +74,7 @@
       filters:
         vpc-id: "{{ vpc_id }}"
     register: sg_facts
+    when: vpc_facts.vpcs|length > 0
 
   - name: Delete the security groups
     ec2_group:
@@ -79,8 +82,11 @@
       region: "{{ demo_region }}"
       state: absent
     with_items: "{{ sg_facts.security_groups }}"
-    ignore_errors: yes # Ignore the error 'the specified group [...] cannot be deleted by a user'
-    no_log: true # You print out way too many logs, Ansible!
+    when: vpc_facts.vpcs|length > 0
+    register: delete_sg
+    failed_when:
+      - delete_sg|failed
+      - not "'cannot be deleted by a user' in delete_sg.stderr"
 
   - name: Gather facts about the route tables
     ec2_vpc_route_table_facts:
@@ -88,6 +94,7 @@
       filters:
         vpc-id: "{{ vpc_id }}"
     register: rt_facts
+    when: vpc_facts.vpcs|length > 0
 
   # The default 'lookup: tag' doesn't work.
   # Ref: https://github.com/ansible/ansible/issues/19344
@@ -99,8 +106,11 @@
       route_table_id: "{{ item.id }}"
       state: absent
     with_items: "{{ rt_facts.route_tables }}"
-    ignore_errors: yes # Ignore the error 'The routeTable [...] has dependencies and cannot be deleted'
-    no_log: true
+    when: vpc_facts.vpcs|length > 0
+    register: delete_rt
+    failed_when:
+      - delete_rt|failed
+      - not "'has dependencies and cannot be deleted' in delete_rt.stderr"
 
   - name: Delete the keypair
     ec2_key:
